@@ -23,9 +23,11 @@ import (
 // query functions in this package. The default value is 60 seconds.
 var TimeOut int = 60
 
-// MaxRedirects is the maximum number of redirects any request will
-// attempt before returning an error. The default value is 5.
-var MaxRedirects = 5
+// Client provides a way to change the default HTTP client for
+// any further package HTTP request function calls. By default, it is
+// set to http.DefaultClient. This is particularly useful when creating
+// mockups and other testing.
+var Client = http.DefaultClient
 
 // Get is much like http.Get except that it unmarshals into the
 // specified struct (which may already contain populated data fields).
@@ -48,13 +50,11 @@ func Get[T any](url string, data *T) error {
 	defer cancel()
 	req = req.WithContext(ctx)
 
-	// do the request and check status code, if redirect do it
-
-	res, err := http.DefaultClient.Do(req)
+	// do the request and check status code
+	res, err := Client.Do(req)
 	if err != nil {
 		return err
 	}
-	// TODO redirect 300 status responses
 
 	// read all the body of the response and unmarshal it
 	buf, err := io.ReadAll(res.Body)

@@ -24,13 +24,14 @@ func ExampleGet() {
 
 	// create the struct type matching the REST query JSON
 	type Greeting struct {
-		Word string `json:"word"`
-		Name string `json:"name"`
+		Word      string `json:"word"`
+		Name      string `json:"name"`
+		Untouched string `json:"untouched"`
 	}
 
 	// create empty greeting and fill it with request response
 	// and capture the extra net/http response as well
-	greet := Greeting{}
+	greet := Greeting{"OVERWRITEWORD", "NOT A NAME", "SAME"}
 	if err := http.Get(svr.URL, &greet); err != nil {
 		fmt.Println(err)
 	}
@@ -39,5 +40,5 @@ func ExampleGet() {
 	json.Object[Greeting]{greet}.Print()
 
 	// Output:
-	// {"word":"hello","name":"Rob"}
+	// {"word":"hello","name":"Rob","untouched":"SAME"}
 }
