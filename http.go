@@ -82,33 +82,53 @@ type DELETE struct {
 // data fields). Request also observes the package global http.TimeOut
 // Any status code other than 200 returns an error. Also see
 // Get, Post, Put, Patch, and Delete.
-func Request[T any](method, url string, in url.Values, out *T) error {
+func Request[T any](method, uri string, in url.Values, out *T) error {
 	var err error
-	var inreader io.Reader
-	var inlength string
+	var req *http.Request
 
 	// encode any input data
-	if in != nil {
-		encoded := in.Encode()
-		inreader = strings.NewReader(encoded)
-		inlength = strconv.Itoa(len(encoded))
-	}
+	switch method {
+	case "GET", "DELETE":
+		req, err = http.NewRequest(method, uri, nil)
+		if in != nil {
+			q := req.URL.Query()
+			for k, values := range in {
+				for _, value := range values {
+					q.Add(k, value)
+				}
+			}
+			req.URL.RawQuery = q.Encode()
+		}
+		break
+	case "POST", "PUT", "PATCH":
+		var inreader *strings.Reader = nil
+		var inlength string
+		if in != nil {
+			encoded := in.Encode()
+			inreader = strings.NewReader(encoded)
+			inlength = strconv.Itoa(len(encoded))
+		}
 
-	// build request with no body
-	req, err := http.NewRequest(method, url, inreader)
-	if in != nil {
-		req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-		req.Header.Add("Content-Length", inlength)
-	}
-
-	if err != nil {
-		return err
+		req, err = http.NewRequest(method, uri, inreader)
+		if err != nil {
+			return err
+		}
+		if in != nil {
+			req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Add("Content-Length", inlength)
+		}
+		break
 	}
 
 	//  upgrade request to with context and TimeOut
 	dur := time.Duration(time.Second * time.Duration(TimeOut))
 	ctx, cancel := context.WithTimeout(context.Background(), dur)
 	defer cancel()
+
+	if req == nil {
+		fmt.Println("Hello World")
+	}
+
 	req = req.WithContext(ctx)
 
 	// do the request and check status code
@@ -131,7 +151,7 @@ func Request[T any](method, url string, in url.Values, out *T) error {
 
 // Get sends a GET Request.
 func Get[T any](url string, in url.Values, out *T) error {
-	return Request(`GET`, url, nil, out)
+	return Request(`GET`, url, in, out)
 }
 
 // Post sends a POST Request.
@@ -154,58 +174,101 @@ func Delete[T any](url string, out *T) error {
 	return Request(`DELETE`, url, nil, out)
 }
 
+// ReqRecipe is a "bottled" HTTP request, that can be used with http.Pipe.
+type ReqRecipe[T any] func(out *T) error
+
+func GetRecipe[T any](url string, in url.Values) ReqRecipe[T] {
+	return ReqRecipe[T](func(out *T) error {
+		return Get(url, in, out)
+	})
+}
+
+func PostRecipe[T any](url string, in url.Values) ReqRecipe[T] {
+	return ReqRecipe[T](func(out *T) error {
+		return Post(url, in, out)
+	})
+}
+func PutRecipe[T any](url string, in url.Values) ReqRecipe[T] {
+	return ReqRecipe[T](func(out *T) error {
+		return Put(url, in, out)
+	})
+}
+func PatchRecipe[T any](url string, in url.Values) ReqRecipe[T] {
+	return ReqRecipe[T](func(out *T) error {
+		return Patch(url, in, out)
+	})
+}
+func DeleteRecipe[T any](url string) ReqRecipe[T] {
+	return ReqRecipe[T](func(out *T) error {
+		return Delete(url, out)
+	})
+}
+
+// Pipe Example of different flavor using higher order functions. In my experience code that tries
+// to encapsulate "processes" using data structs ends up trying implementing an "interpreter" that blows up in complexity
+// for every capability that one would want to support. Higher-order functions on the other hand are easily constructable,
+// composable, and can leverage any kind of logic.
+func Pipe[T any](data *T, recipes ...ReqRecipe[T]) error {
+	for _, recipe := range recipes {
+		if err := recipe(data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Pipe makes multiple HTTP requests in succession sending the same data
 // object to all of them for marshaling with the results of the
 // requests. This is useful for chaining multiple service or REST API
 // requests together. It also allows chains of requests to be saved and
 // added to registries for repeated and composition with other data flow
 // pipelines.
-func Pipe[T any](data *T, reqs ...any) error {
-	for _, req := range reqs {
-		if req, isslice := req.([]Req); isslice {
-			for _, r := range req {
-				if err := Pipe(data, r); err != nil {
-					return err
-				}
-			}
-		}
-		switch v := req.(type) {
-		case GET:
-			if err := Get(v.URL, v.Data, data); err != nil {
-				return err
-			}
-		case POST:
-			if err := Post(v.URL, v.Data, data); err != nil {
-				return err
-			}
-		case PATCH:
-			if err := Patch(v.URL, v.Data, data); err != nil {
-				return err
-			}
-		case PUT:
-			if err := Put(v.URL, v.Data, data); err != nil {
-				return err
-			}
-		case DELETE:
-			if err := Delete(v.URL, data); err != nil {
-				return err
-			}
-		case Req:
-			switch v.Method {
-			case `GET`, `POST`, `PUT`, `PATCH`:
-				if err := Request(v.Method, v.URL, v.Data, data); err != nil {
-					return err
-				}
-			case `DELETE`:
-				if err := Delete(v.URL, data); err != nil {
-					return err
-				}
-			default:
-				return fmt.Errorf(`unsupported request method: %v`, v.Method)
-			}
-		default:
-			return fmt.Errorf(`unsupported request type: %T`, v)
-		}
-	}
-	return nil
-}
+//func Pipe[T any](data *T, reqs ...any) error {
+//	for _, req := range reqs {
+//		if req, isslice := req.([]Req); isslice {
+//			for _, r := range req {
+//				if err := Pipe(data, r); err != nil {
+//					return err
+//				}
+//			}
+//		}
+//		switch v := req.(type) {
+//		case GET:
+//			if err := Get(v.URL, v.Data, data); err != nil {
+//				return err
+//			}
+//		case POST:
+//			if err := Post(v.URL, v.Data, data); err != nil {
+//				return err
+//			}
+//		case PATCH:
+//			if err := Patch(v.URL, v.Data, data); err != nil {
+//				return err
+//			}
+//		case PUT:
+//			if err := Put(v.URL, v.Data, data); err != nil {
+//				return err
+//			}
+//		case DELETE:
+//			if err := Delete(v.URL, data); err != nil {
+//				return err
+//			}
+//		case Req:
+//			switch v.Method {
+//			case `GET`, `POST`, `PUT`, `PATCH`:
+//				if err := Request(v.Method, v.URL, v.Data, data); err != nil {
+//					return err
+//				}
+//			case `DELETE`:
+//				if err := Delete(v.URL, data); err != nil {
+//					return err
+//				}
+//			default:
+//				return fmt.Errorf(`unsupported request method: %v`, v.Method)
+//			}
+//		default:
+//			return fmt.Errorf(`unsupported request type: %T`, v)
+//		}
+//	}
+//	return nil
+//}
