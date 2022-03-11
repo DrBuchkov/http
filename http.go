@@ -29,6 +29,49 @@ var TimeOut int = 60
 // mockups and other testing.
 var Client = http.DefaultClient
 
+// Req encapsulates a single HTTP GET Request in a way that can be
+// combined with others Requestions through Pipe.
+type Req struct {
+	Method string
+	URL    string
+	Data   url.Values
+}
+
+// GET is shorthand for Req(`GET`, ...). Data url.Values are passed as
+// a query string in the URL.
+type GET struct {
+	URL  string
+	Data url.Values
+}
+
+// POST is shorthand for Req(`POST`, ...). Data url.Values are passed as
+// encoded form data in the body.
+type POST struct {
+	URL  string
+	Data url.Values
+}
+
+// PUT is shorthand for Req(`PUT`, ...). Data url.Values are passed as
+// encoded form data in the body.
+type PUT struct {
+	URL  string
+	Data url.Values
+}
+
+// PATCH is shorthand for Req(`PATCH`, ...). Data url.Values are passed
+// encoded as form data in the body.
+type PATCH struct {
+	URL  string
+	Data url.Values
+}
+
+// DELETE is shorthand for Req(`DELETE`, ...). Data url.Values are
+// passed as a query string in the URL.
+type DELETE struct {
+	URL  string
+	Data url.Values
+}
+
 // Request passes the requested method with the given URL and input data
 // values to the HTTP Client and unmarshals the response into the data
 // struct passed by pointer (out, which may already contain populated
@@ -79,7 +122,7 @@ func Request[T any](method, url string, in url.Values, out *T) error {
 }
 
 // Get sends a GET Request.
-func Get[T any](url string, out *T) error {
+func Get[T any](url string, in url.Values, out *T) error {
 	return Request(`GET`, url, nil, out)
 }
 
@@ -101,4 +144,60 @@ func Patch[T any](url string, in url.Values, out *T) error {
 // Delete sends a DELETE Request.
 func Delete[T any](url string, out *T) error {
 	return Request(`DELETE`, url, nil, out)
+}
+
+// Pipe makes multiple HTTP requests in succession sending the same data
+// object to all of them for marshaling with the results of the
+// requests. This is useful for chaining multiple service or REST API
+// requests together. It also allows chains of requests to be saved and
+// added to registries for repeated and composition with other data flow
+// pipelines.
+func Pipe[T any](data *T, reqs ...any) error {
+	for _, req := range reqs {
+		if req, isslice := req.([]Req); isslice {
+			for _, r := range req {
+				if err := Pipe(data, r); err != nil {
+					return err
+				}
+			}
+		}
+		switch v := req.(type) {
+		case GET:
+			if err := Get(v.URL, v.Data, data); err != nil {
+				return err
+			}
+		case POST:
+			if err := Post(v.URL, v.Data, data); err != nil {
+				return err
+			}
+		case PATCH:
+			if err := Patch(v.URL, v.Data, data); err != nil {
+				return err
+			}
+		case PUT:
+			if err := Put(v.URL, v.Data, data); err != nil {
+				return err
+			}
+		case DELETE:
+			if err := Delete(v.URL, data); err != nil {
+				return err
+			}
+		case Req:
+			switch v.Method {
+			case `GET`, `POST`, `PUT`, `PATCH`:
+				if err := Request(v.Method, v.URL, v.Data, data); err != nil {
+					return err
+				}
+			case `DELETE`:
+				if err := Delete(v.URL, data); err != nil {
+					return err
+				}
+			default:
+				return fmt.Errorf(`unsupported request method: %v`, v.Method)
+			}
+		default:
+			return fmt.Errorf(`unsupported request type: %T`, v)
+		}
+	}
+	return nil
 }

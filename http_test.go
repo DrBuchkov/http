@@ -33,7 +33,7 @@ func ExampleGet() {
 	// create empty greeting and fill it with request response
 	// and capture the extra net/http response as well
 	greet := Greeting{"OVERWRITEWORD", "NOT A NAME", "SAME"}
-	if err := http.Get(svr.URL, &greet); err != nil {
+	if err := http.Get(svr.URL, nil, &greet); err != nil {
 		fmt.Println(err)
 	}
 
@@ -190,4 +190,46 @@ func ExampleDelete() {
 
 	// Output:
 	// {"word":"hello","name":"Rob","untouched":"SAME"}
+}
+
+func ExamplePipe() {
+
+	// setup mock web service
+	handler := _http.HandlerFunc(
+		func(w _http.ResponseWriter, r *_http.Request) {
+			switch r.URL.String() {
+			case "/greet":
+				fmt.Fprintf(w, `{"greeting":"hello"}`)
+			case "/howru":
+				fmt.Fprintf(w, `{"word":"hello","name":"Rob"}`)
+			case "/bye":
+				fmt.Fprintf(w, `{}`)
+			default:
+				fmt.Fprintf(w, `{}`)
+			}
+		})
+	svr := ht.NewServer(handler)
+	defer svr.Close()
+
+	greet := http.GET{svr.URL + "/greet", nil}
+	howru := http.POST{svr.URL + "/howru", url.Values{"name": []string{"Rob"}}}
+	bye := http.GET{svr.URL + "/bye", nil}
+
+	//encounter := []http.Req{greet, howru, bye}
+
+	type Data struct {
+		Name     string
+		Greeting string
+	}
+	data := Data{}
+
+	err := http.Pipe(&data, greet, howru, bye)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	json.Object[Data]{data}.Print()
+
+	// Output:
+	// {"Name":"Rob","Greeting":"hello"}
 }
