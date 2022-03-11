@@ -14,8 +14,12 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -111,6 +115,10 @@ func Request[T any](method, url string, in url.Values, out *T) error {
 	res, err := Client.Do(req)
 	if err != nil {
 		return err
+	}
+
+	if !(200 <= res.StatusCode && res.StatusCode < 300) {
+		return fmt.Errorf(res.Status)
 	}
 
 	// read all the body of the response and unmarshal it

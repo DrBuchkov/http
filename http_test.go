@@ -205,7 +205,7 @@ func ExamplePipe() {
 			case "/bye":
 				fmt.Fprintf(w, `{}`)
 			default:
-				fmt.Fprintf(w, `{}`)
+				w.WriteHeader(400)
 			}
 		})
 	svr := ht.NewServer(handler)
@@ -232,4 +232,31 @@ func ExamplePipe() {
 
 	// Output:
 	// {"Name":"Rob","Greeting":"hello"}
+}
+
+func ExampleGet_status() {
+
+	// setup mock web service
+	handler := _http.HandlerFunc(
+		func(w _http.ResponseWriter, r *_http.Request) {
+			w.WriteHeader(400)
+		})
+	svr := ht.NewServer(handler)
+	defer svr.Close()
+
+	type Data struct {
+		Name     string
+		Greeting string
+	}
+	data := Data{}
+
+	if err := http.Get(svr.URL, nil, &data); err != nil {
+		fmt.Println(err)
+	}
+
+	json.Object[Data]{data}.Print()
+
+	// Output:
+	// 400 Bad Request
+	// {"Name":"","Greeting":""}
 }
