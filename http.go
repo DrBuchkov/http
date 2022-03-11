@@ -29,17 +29,31 @@ var TimeOut int = 60
 // mockups and other testing.
 var Client = http.DefaultClient
 
-// Get is much like http.Get except that it unmarshals into the
-// specified struct (which may already contain populated data fields).
-// Get also observes the package global http.TimeOut and will
-// automatically redirect when a redirect response is received. In fact,
-// errors are returned for any status code other than anything in the
-// 200 range (including after a successful redirect).
-func Get[T any](url string, data *T) error {
+// Request passes the requested method with the given URL and input data
+// values to the HTTP Client and unmarshals the response into the data
+// struct passed by pointer (out, which may already contain populated
+// data fields). Request also observes the package global http.TimeOut
+// Any status code other than 200 returns an error. Also see
+// Get, Post, Put, Patch, and Delete.
+func Request[T any](method, url string, in url.Values, out *T) error {
 	var err error
+	var inreader io.Reader
+	var inlength string
+
+	// encode any input data
+	if in != nil {
+		encoded := in.Encode()
+		inreader = strings.NewReader(encoded)
+		inlength = strconv.Itoa(len(encoded))
+	}
 
 	// build request with no body
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest(method, url, inreader)
+	if in != nil {
+		req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Add("Content-Length", inlength)
+	}
+
 	if err != nil {
 		return err
 	}
@@ -61,5 +75,30 @@ func Get[T any](url string, data *T) error {
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(buf, data)
+	return json.Unmarshal(buf, out)
+}
+
+// Get sends a GET Request.
+func Get[T any](url string, out *T) error {
+	return Request(`GET`, url, nil, out)
+}
+
+// Post sends a POST Request.
+func Post[T any](url string, in url.Values, out *T) error {
+	return Request(`POST`, url, in, out)
+}
+
+// Put sends a POST Request.
+func Put[T any](url string, in url.Values, out *T) error {
+	return Request(`PUT`, url, in, out)
+}
+
+// Patch sends a PATCH Request.
+func Patch[T any](url string, in url.Values, out *T) error {
+	return Request(`PATCH`, url, in, out)
+}
+
+// Delete sends a DELETE Request.
+func Delete[T any](url string, out *T) error {
+	return Request(`DELETE`, url, nil, out)
 }
